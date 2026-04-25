@@ -9,6 +9,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<!-- Librería Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -23,14 +25,15 @@
 
 body{font-family:'Sora',sans-serif;background:var(--bg);color:var(--ink);overflow-x:hidden}
 
-/* --- SETUP OVERLAY --- */
-#setup-overlay {
+/* --- SETUP OVERLAY Y AUTH OVERLAY --- */
+.full-overlay {
   position:fixed;inset:0;background:rgba(15,17,23,0.95);
   display:flex;justify-content:center;align-items:center;z-index:9999;backdrop-filter:blur(10px);
 }
 .setup-card {
   background:white;padding:3rem;border-radius:24px;max-width:500px;width:90%;text-align:center;
   box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);
+  animation: viewFade 0.4s ease;
 }
 .upload-zone {
   border:2px dashed var(--border2);padding:3rem;border-radius:16px;margin:2rem 0;
@@ -62,20 +65,72 @@ main{max-width:1400px;margin:2rem auto;padding:0 1.5rem}
 .entry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:1.5rem}
 .form-group label{display:block;font-size:0.75rem;font-weight:700;margin-bottom:0.5rem;color:var(--ink2)}
 
-.line-row{display:grid;grid-template-columns:160px 1fr 70px 120px 120px 120px 50px;gap:12px;margin-bottom:10px;align-items:start}
+/* Se ajustaron las columnas de la fila para hacer espacio al botón de arrastre (drag-handle) */
+.line-row{display:grid;grid-template-columns:30px 160px 1fr 70px 120px 120px 120px 45px;gap:10px;margin-bottom:10px;align-items:start; border-radius:8px; transition: background 0.2s, box-shadow 0.2s;}
+.line-row.dragging{opacity:0.6; background:var(--surface2); border: 1px dashed var(--accent); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); z-index: 50;}
+.drag-handle{cursor:grab; display:flex; align-items:center; justify-content:center; color:var(--border2); font-size:1.2rem; height:45px; user-select:none; transition:0.2s;}
+.drag-handle:hover{color:var(--accent);}
+.drag-handle:active{cursor:grabbing;}
+
 .btn-toggle-type{padding:0.75rem 0.5rem;border-radius:8px;font-weight:700;font-size:0.7rem;border:none;cursor:pointer;transition:0.2s;width:100%}
 .btn-debe{background:var(--accent-pale);color:var(--accent);}
 .btn-haber{background:var(--ink2);color:white;}
 .autocomplete-wrapper{position:relative}
 .suggestions{position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto;z-index:100;display:none}
 .suggestion-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--bg);font-size:0.8rem; line-height: 1.2;}
-.suggestion-item:hover{background:var(--accent-pale)}
+.suggestion-item:hover, .suggestion-item.active-suggestion {background:var(--accent-pale); border-left: 3px solid var(--accent);}
 .btn-create-acc{background:var(--green-pale); color:var(--green); font-weight:700; text-align:center; padding:12px; border-top:1px solid var(--border)}
 
-input,select{width:100%;padding:0.75rem 1rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:0.9rem}
+input,select{width:100%;padding:0.75rem 1rem;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:0.9rem;transition: 0.2s;}
 input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-pale)}
+input.error{border-color:var(--red); box-shadow:0 0 0 4px var(--red-pale);}
+
+/* Estilo para creación de cuenta inline */
+input.creating-mode {
+    background: #ffffff !important;
+    border-color: var(--green);
+    box-shadow: 0 0 0 4px var(--green-pale);
+    color: var(--green);
+    font-weight: 600;
+}
+input.creating-mode::placeholder { color: #86efac; font-weight: 400; }
+
+/* --- ESTILOS DE FÓRMULAS TIPO EXCEL --- */
+.input-parcial { font-style: italic; }
+
+.formula-mode-active {
+    box-shadow: 0 0 0 2px var(--accent) !important;
+    border-color: var(--accent) !important;
+    background: #f8fafc !important;
+}
+
+@keyframes cellFlashAnim {
+    0% { box-shadow: inset 0 0 0 3px var(--green); background: var(--green-pale); }
+    100% { box-shadow: none; background: transparent; }
+}
+.cell-flash {
+    animation: cellFlashAnim 0.5s ease-out;
+}
+
+/* Estilo para el modo edición activo */
+.editing-mode-active {
+    border: 2px dashed var(--accent) !important;
+    background: #fdfeff !important;
+}
+
 .mono{font-family:'JetBrains Mono',monospace;font-size:0.85rem}
 .text-right{text-align:right}
+
+/* --- ESTILOS DE ÁRBOL DEL MAYOR E HISTORIAL --- */
+.tree-item { user-select: none; }
+.hover-bg:hover { background: var(--surface2) !important; }
+
+/* Drag & Drop para Asientos Enteros */
+.journal-entry-group { transition: opacity 0.2s; border: 2px solid transparent; }
+.journal-entry-group.dragging { opacity: 0.4; background: var(--accent-pale); }
+.drag-handle-journal { cursor: grab; font-weight: bold; color: var(--ink3); text-align: center; }
+.drag-handle-journal:hover { color: var(--accent); }
+.drag-handle-journal:active { cursor: grabbing; }
 
 /* --- BUTTONS --- */
 .btn{padding:0.75rem 1.5rem;border-radius:10px;font-weight:600;cursor:pointer;transition:0.2s;font-family:inherit;border:none;display:inline-flex;align-items:center;gap:8px}
@@ -104,12 +159,42 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
 
 #toast{position:fixed;bottom:2rem;right:2rem;background:var(--ink);color:white;padding:1rem 2rem;border-radius:12px;transform:translateY(100px);opacity:0;transition:0.3s;z-index:9999}
 #toast.show{transform:translateY(0);opacity:1}
+
+/* --- CUSTOM MODAL --- */
+#custom-modal {
+    position: fixed; inset: 0; background: rgba(15, 17, 23, 0.85); z-index: 10000;
+    display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+}
+.modal-card {
+    background: white; width: 90%; max-width: 400px; border-radius: 16px;
+    padding: 2rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    animation: viewFade 0.3s ease;
+}
+.modal-card h3 { margin-bottom: 1rem; color: var(--ink); }
+.modal-card p { color: var(--ink2); font-size: 0.9rem; margin-bottom: 1.5rem; white-space: pre-wrap; }
+.modal-card input { width: 100%; padding: 0.8rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.5rem; }
+.modal-card .btn-group { display: flex; justify-content: flex-end; gap: 10px; }
 </style>
 </head>
 <body>
 
-<!-- OVERLAY DE CARGA SI NO HAY STORAGE -->
-<div id="setup-overlay" style="display:none">
+<!-- PANTALLA INICIAL DE AUTENTICACIÓN (GATE) -->
+<div id="auth-overlay" class="full-overlay" style="display:none;">
+    <div class="setup-card" style="max-width: 450px; padding: 3rem 2rem;">
+        <h2 style="font-size:1.8rem; letter-spacing:-0.5px; margin-bottom:0.5rem;">Modo de Acceso</h2>
+        <p style="color:var(--ink3); font-size:0.9rem; margin-bottom:2rem;">Selecciona cómo deseas utilizar SisBank Pro. El modo sincronizado requiere contraseña.</p>
+        
+        <input type="password" id="auth-pass" placeholder="Contraseña de sincronización..." style="text-align:center; margin-bottom:1.5rem; font-size:1rem; letter-spacing: 2px;" onkeydown="if(event.key === 'Enter') authSync()">
+        
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <button class="btn btn-primary" style="justify-content:center; padding: 1rem;" onclick="authSync()">Conectar y Sincronizar ☁️</button>
+            <button class="btn btn-outline" style="justify-content:center; padding: 1rem;" onclick="authLocal()">Continuar en Local 💻</button>
+        </div>
+    </div>
+</div>
+
+<!-- OVERLAY DE CARGA DE CATÁLOGO SI NO HAY STORAGE -->
+<div id="setup-overlay" class="full-overlay" style="display:none">
     <div class="setup-card">
         <h2 style="font-size:2rem;letter-spacing:-1px">Inicializar Motor CUC</h2>
         <p style="color:var(--ink3);margin:1rem 0">Sube el archivo CSV con el catálogo bancario oficial para comenzar.</p>
@@ -126,8 +211,10 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
     <div class="logo">SisBank<span>PRO</span></div>
     <div style="display:flex;align-items:center;gap:2rem">
         <div id="db-status" style="font-size:0.7rem;font-weight:700;background:rgba(255,255,255,0.1);padding:0.4rem 1rem;border-radius:20px">Iniciando...</div>
+        <div id="mode-badge" style="font-size:0.7rem;font-weight:700;background:rgba(255,255,255,0.1);padding:0.4rem 1rem;border-radius:20px;color:var(--green-pale);">Modo Local</div>
         <nav>
             <button onclick="navigate('diario')" id="nav-diario" class="active">Libro Diario</button>
+            <button onclick="navigate('mayor')" id="nav-mayor">Libro Mayor</button>
             <button onclick="navigate('catalogo')" id="nav-catalogo">Catálogo</button>
         </nav>
     </div>
@@ -138,14 +225,25 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
     <section id="view-diario" class="view active">
         <div class="card">
             <div class="card-header">
-                <h2>Voucher Contable</h2>
-                <div style="display:flex;gap:0.75rem">
+                <h2 id="form-title">Voucher Contable</h2>
+                <div style="display:flex;gap:0.75rem;align-items:center;">
+                    <!-- Selector de Plantillas -->
+                    <select id="template-selector" class="btn btn-outline" style="padding:0.65rem; font-size:0.8rem; border-radius:8px; cursor:pointer;" onchange="loadTemplateSelect(this)">
+                        <option value="">📁 Cargar Plantilla...</option>
+                    </select>
+                    
+                    <!-- Botones de Exportación / Importación -->
+                    <button class="btn btn-outline" onclick="exportOperationalData()" title="Exportar Backup Local">💾 Backup Local</button>
+                    <button class="btn btn-outline" onclick="document.getElementById('import-backup-input').click()" title="Importar Backup">📂 Importar</button>
+                    <input type="file" id="import-backup-input" accept=".json" style="display:none" onchange="handleImportBackupChange(event)">
+                    
                     <button class="btn btn-outline" onclick="resetDB()">Limpiar BD</button>
-                    <button class="btn btn-primary" onclick="exportExcel()">⬇ Exportar Diario</button>
+                    <!-- EXPORTACIÓN UNIFICADA -->
+                    <button class="btn btn-primary" onclick="exportSistemaCompleto()">⬇ Exportar Sistema Completo</button>
                 </div>
             </div>
             
-            <div class="entry-form">
+            <div class="entry-form" id="entry-form-container">
                 <div class="entry-grid">
                     <div class="form-group">
                         <label>FECHA CONTABLE</label>
@@ -161,7 +259,11 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
                 
                 <div style="margin-top:1.5rem;display:flex;justify-content:space-between;align-items:center">
                     <button class="btn btn-outline" onclick="addLine()">+ Añadir Fila</button>
-                    <button class="btn btn-primary" onclick="postEntry()" style="padding:1rem 2.5rem">Postear Asiento</button>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-outline" onclick="saveTemplate()">💾 Guardar como Plantilla</button>
+                        <button class="btn btn-outline" id="btn-cancel-edit" onclick="cancelEdit()" style="display:none; color:var(--ink2);">Cancelar Edición</button>
+                        <button class="btn btn-primary" id="btn-post-entry" onclick="postEntry()" style="padding:1rem 2.5rem">Postear Asiento</button>
+                    </div>
                 </div>
 
                 <div class="totals-bar">
@@ -186,8 +288,57 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
                             <th class="text-right">Haber</th>
                         </tr>
                     </thead>
-                    <tbody id="journal-tbody"></tbody>
+                    <!-- Los tbody de los asientos se inyectan aquí dinámicamente -->
                 </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- VISTA: LIBRO MAYOR -->
+    <section id="view-mayor" class="view">
+        <div class="card" style="margin-bottom: 1rem;">
+            <div class="card-header">
+                <div style="display:flex;flex-direction:column;gap:5px">
+                    <h2 style="font-size:1.4rem">Libro Mayor (Jerárquico)</h2>
+                    <div id="mayor-acc-name" style="font-size:0.85rem; color:var(--ink3); font-weight:600;">Seleccione una cuenta del catálogo para visualizar...</div>
+                </div>
+                <div style="display:flex;gap:0.75rem;align-items:center;">
+                    <!-- EXPORTACIÓN UNIFICADA -->
+                    <button class="btn btn-primary" onclick="exportSistemaCompleto()">⬇ Exportar Sistema Completo</button>
+                </div>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; align-items: start;">
+            <!-- PANEL IZQUIERDO: Árbol de Catálogo -->
+            <div class="card" style="margin-bottom:0; max-height: 70vh; display: flex; flex-direction: column;">
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border);">
+                    <input type="text" id="mayor-tree-search" placeholder="Buscar cuenta o grupo (ej: 11)..." oninput="renderMayorTree()" style="width: 100%;">
+                </div>
+                <div id="mayor-tree-container" style="overflow-y: auto; padding: 1rem; font-size: 0.85rem; flex: 1;">
+                    <!-- Árbol renderizado por JS -->
+                </div>
+            </div>
+            
+            <!-- PANEL DERECHO: Tabla del Mayor -->
+            <div class="card" style="margin-bottom:0; max-height: 70vh; display: flex; flex-direction: column;">
+                <div style="overflow-y:auto; flex: 1;">
+                    <table id="mayor-table">
+                        <thead style="position:sticky;top:0;z-index:5">
+                            <tr>
+                                <th style="width:120px; text-align:center;">Fecha</th>
+                                <th style="width:120px; text-align:center;">Asiento</th>
+                                <th>Concepto</th>
+                                <th class="text-right">Débito</th>
+                                <th class="text-right">Crédito</th>
+                                <th class="text-right" style="background:var(--surface2)">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mayor-tbody">
+                            <tr><td colspan="6" style="text-align:center; color:var(--ink3); padding: 2rem;">Seleccione una cuenta a la izquierda para generar el libro mayor.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </section>
@@ -220,89 +371,841 @@ td{padding:1rem;border-bottom:1px solid var(--border);font-size:0.9rem}
     </section>
 </main>
 
+<!-- MODAL PERSONALIZADO -->
+<div id="custom-modal">
+    <div class="modal-card">
+        <h3 id="modal-title">Título</h3>
+        <p id="modal-message">Mensaje</p>
+        <input type="text" id="modal-input" placeholder="" autocomplete="off">
+        <div class="btn-group">
+            <button id="modal-cancel" class="btn btn-outline">Cancelar</button>
+            <button id="modal-confirm" class="btn btn-primary">Aceptar</button>
+        </div>
+    </div>
+</div>
+
 <div id="toast">Notificación</div>
 
 <script>
 /**
- * MOTOR SISBANK PRO - RECONSTRUIDO CON CREACIÓN DE CUENTAS
+ * MOTOR SISBANK PRO - RECONSTRUIDO CON CÁLCULOS EXCEL, MAYOR JERÁRQUICO, SUPABASE Y AUTH GATE
  */
-let dbCatalog = [];
+
+// --- CONFIGURACIÓN GLOBALES DE ACCESO Y SUPABASE ---
+const SUPABASE_URL = 'https://erynbyvxuxszanexbusr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_QW71DJJbDdrbBQEvV4m4Ww_1ob06yJC';
+
+let supabaseClient = null;
+let modoApp = "local"; // Por defecto iniciamos asumiendo local
+
+// --- UTILIDAD DE ID SEGURO ---
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// Variables Globales
+let baseCatalog = []; 
+let dbCatalog = [];   
 let journal = [];
+let templates = [];
+let editingEntryId = null; 
+
+// Mapas de UUIDs para conexión con base de datos
+let mapaCuentas = {};
+let mapaCuentasInverso = {};
+
+// Control de Fórmulas y Clics
+let activeFormulaInput = null;
+
+// Variables para Libro Mayor
+let currentMayorCode = '';
+let currentMayorName = '';
+let expandedNodes = new Set(['1', '2', '3', '4', '5', '6', '7', '8', '9']); 
+
+const STORAGE_BASE_CUC = 'sisbank_base_cuc_db'; 
 const STORAGE_CUC = 'sisbank_cuc_db';
 const STORAGE_JOURNAL = 'sisbank_journal_db';
+const STORAGE_TEMPLATES = 'sisbank_templates_db';
 
-// --- INICIO ---
+// --- INICIO DE LA APLICACIÓN (GATE) ---
 window.onload = () => {
+    // 1. Cargamos datos locales en memoria preventivamente
+    const storedBase = localStorage.getItem(STORAGE_BASE_CUC);
     const storedCUC = localStorage.getItem(STORAGE_CUC);
     const storedJournal = localStorage.getItem(STORAGE_JOURNAL);
+    const storedTemplates = localStorage.getItem(STORAGE_TEMPLATES);
 
     if(storedJournal) journal = JSON.parse(storedJournal);
+    if(storedTemplates) templates = JSON.parse(storedTemplates);
 
     if(storedCUC) {
         dbCatalog = JSON.parse(storedCUC);
+        if (storedBase) {
+            baseCatalog = JSON.parse(storedBase);
+        } else {
+            baseCatalog = [...dbCatalog];
+            localStorage.setItem(STORAGE_BASE_CUC, JSON.stringify(baseCatalog));
+        }
+    }
+
+    // 2. Mostramos siempre la puerta de acceso primero
+    document.getElementById('auth-overlay').style.display = 'flex';
+};
+
+// --- LOGICA DE AUTENTICACIÓN ---
+function authSync() {
+    const pass = document.getElementById('auth-pass').value;
+    if (pass === 'holamundo235') {
+        modoApp = "sync";
+        supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+        document.getElementById('auth-overlay').style.display = 'none';
+        
+        const badge = document.getElementById('mode-badge');
+        badge.textContent = "Modo Sincronizado ☁️";
+        badge.style.color = "var(--accent)";
+        badge.style.background = "var(--accent-pale)";
+        
+        proceedAfterAuth();
+    } else {
+        showToast('Contraseña incorrecta. Intente de nuevo o continúe en local.');
+        document.getElementById('auth-pass').classList.add('error');
+        setTimeout(() => document.getElementById('auth-pass').classList.remove('error'), 1000);
+    }
+}
+
+function authLocal() {
+    modoApp = "local";
+    supabaseClient = null;
+    document.getElementById('auth-overlay').style.display = 'none';
+    
+    const badge = document.getElementById('mode-badge');
+    badge.textContent = "Modo Local 💻";
+    badge.style.color = "var(--green)";
+    badge.style.background = "var(--green-pale)";
+
+    proceedAfterAuth();
+}
+
+function proceedAfterAuth() {
+    if (dbCatalog.length > 0) {
         initApp();
     } else {
         document.getElementById('setup-overlay').style.display = 'flex';
     }
-};
+}
 
 function initApp() {
     document.getElementById('setup-overlay').style.display = 'none';
     document.getElementById('db-status').textContent = `DB: ${dbCatalog.length} registros`;
-    document.getElementById('entry-date').valueAsDate = new Date();
     
-    // Preparar formulario
-    document.getElementById('lines-container').innerHTML = '';
-    for(let i=0; i<3; i++) addLine();
-    
+    cancelEdit(false); 
+    renderTemplateSelector(); 
     renderJournal();
-    if(document.getElementById('view-catalogo').classList.contains('active')) renderCatalog();
+    renderCatalog(); 
+    renderMayorTree(); 
+
+    if (modoApp === "sync") {
+        syncSupabase();
+    } else {
+        showToast("Iniciado en Modo Local. No se sincronizarán datos con la nube.");
+    }
+    
+    initDragAndDrop(); 
+    initJournalDragAndDrop(); 
 }
 
-// --- PROCESAMIENTO CSV ---
-document.getElementById('csv-input').onchange = (e) => {
+// --- SINCRONIZACIÓN INICIAL CON SUPABASE ---
+async function syncSupabase() {
+    if (modoApp !== "sync" || !supabaseClient) return;
+    
+    try {
+        const { data: cuentas, error: errC } = await supabaseClient.from("cuentas").select("id, codigo, nombre");
+        if (cuentas) {
+            mapaCuentas = {};
+            mapaCuentasInverso = {};
+            cuentas.forEach(c => {
+                mapaCuentas[c.codigo] = c.id;
+                mapaCuentasInverso[c.id] = c.codigo;
+            });
+        }
+
+        const { data: asientos, error: errA } = await supabaseClient.from('asientos').select('*').order('orden', { ascending: true });
+        const { data: movimientos, error: errM } = await supabaseClient.from('movimientos').select('*');
+        
+        if (errA || errM) throw new Error(errA?.message || errM?.message);
+
+        if (asientos && movimientos) {
+            const localMap = new Map(journal.map(j => [j.id, j]));
+            
+            const remoteJournal = asientos.map((a, idx) => {
+                const movs = movimientos.filter(m => m.asiento_id === a.id);
+                const localEntry = localMap.get(a.id);
+                
+                return {
+                    id: a.id,
+                    date: a.fecha,
+                    glosa: a.descripcion,
+                    orden: a.orden !== undefined && a.orden !== null ? a.orden : (localEntry?.orden || (idx + 1)),
+                    lines: movs.map((m, lineIdx) => {
+                        const localLine = localEntry?.lines?.[lineIdx];
+                        const codigoCuenta = mapaCuentasInverso[m.cuenta_id] || m.cuenta_id; 
+
+                        return {
+                            c: codigoCuenta,
+                            n: dbCatalog.find(x => x.c === codigoCuenta)?.n || localLine?.n || 'Cuenta recuperada',
+                            t: localLine?.t || (m.haber > 0 ? 'H' : 'D'),
+                            p: localLine?.p || 0,
+                            d: m.debe || 0,
+                            h: m.haber || 0,
+                            p_formula: localLine?.p_formula || null,
+                            d_formula: localLine?.d_formula || null,
+                            h_formula: localLine?.h_formula || null
+                        };
+                    })
+                };
+            });
+
+            journal = remoteJournal;
+            localStorage.setItem(STORAGE_JOURNAL, JSON.stringify(journal));
+            
+            renderJournal();
+            if(currentMayorCode) renderMayorTable();
+            showToast("Sincronización en la nube exitosa.");
+        }
+    } catch (e) {
+        console.error("Supabase Sync Error:", e);
+        showToast("Error de conexión. Trabajando con respaldo local de forma temporal.");
+    }
+}
+
+// --- UTILIDADES DE FORMATEO Y FÓRMULAS TIPO EXCEL ---
+function safeMathEval(expr) {
+    const cleanExpr = expr.replace(/[^\d.\-+*/()]/g, ''); 
+    if (!cleanExpr) return 0;
+    try {
+        if (/^[0-9.\-+*/()]+$/.test(cleanExpr)) {
+            return new Function('return (' + cleanExpr + ')')() || 0; 
+        }
+    } catch(e) {
+        return 0; 
+    }
+    return 0;
+}
+
+function getCellValueByRef(ref) {
+    const col = ref.charAt(0); 
+    const rowNum = parseInt(ref.substring(1)); 
+    if (isNaN(rowNum) || rowNum < 1) return 0;
+    
+    const rows = document.querySelectorAll('.line-row');
+    if (rowNum > rows.length) return 0;
+    
+    const row = rows[rowNum - 1];
+    let input = null;
+    if (col === 'C') input = row.querySelector('.input-debe');
+    else if (col === 'D') input = row.querySelector('.input-haber');
+    else if (col === 'E') input = row.querySelector('.input-parcial');
+    
+    if (!input) return 0;
+    return parseCurrency(input.value);
+}
+
+function evaluateFormula(formulaStr) {
+    if (!formulaStr || !formulaStr.startsWith('=')) return 0;
+    let expr = formulaStr.substring(1).toUpperCase();
+    expr = expr.replace(/[CDE][0-9]+/g, (match) => {
+        let val = getCellValueByRef(match);
+        return val.toString();
+    });
+    return safeMathEval(expr);
+}
+
+function recalculateAllFormulas() {
+    for(let pass=0; pass<3; pass++){ 
+        document.querySelectorAll('.input-debe, .input-haber, .input-parcial').forEach(input => {
+            if (input.dataset.formula && input !== document.activeElement) {
+                let result = evaluateFormula(input.dataset.formula);
+                input.value = result !== 0 ? result.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';
+            }
+        });
+    }
+}
+
+function parseCurrency(str) {
+    if (!str) return 0;
+    return parseFloat(str.toString().replace(/,/g, '')) || 0;
+}
+
+function formatCurrencyInput(input) {
+    let cursorPosition = input.selectionStart;
+    const originalLength = input.value.length;
+
+    let rawValue = input.value.replace(/[^0-9.]/g, '');
+    
+    const parts = rawValue.split('.');
+    if (parts.length > 2) {
+        rawValue = parts[0] + '.' + parts.slice(1).join('');
+    }
+
+    const splitValue = rawValue.split('.');
+    let intPart = splitValue[0];
+    const decPart = splitValue.length > 1 ? '.' + splitValue[1] : '';
+
+    if (intPart) {
+        intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    const formattedValue = intPart + decPart;
+    input.value = formattedValue;
+
+    cursorPosition += (formattedValue.length - originalLength);
+    input.setSelectionRange(cursorPosition, cursorPosition);
+}
+
+document.addEventListener('mousedown', (e) => {
+    if (activeFormulaInput && document.activeElement === activeFormulaInput) {
+        const targetInput = e.target.closest('input[data-cell]');
+        
+        if (targetInput && targetInput !== activeFormulaInput) {
+            e.preventDefault(); 
+
+            const cellRef = targetInput.dataset.cell;
+            const currentVal = activeFormulaInput.value;
+            const cursorPos = activeFormulaInput.selectionStart;
+
+            const valBefore = currentVal.substring(0, cursorPos);
+            const valAfter = currentVal.substring(cursorPos);
+            activeFormulaInput.value = valBefore + cellRef + valAfter;
+
+            const newPos = cursorPos + cellRef.length;
+            activeFormulaInput.setSelectionRange(newPos, newPos);
+
+            handleMathInput(activeFormulaInput);
+
+            targetInput.classList.remove('cell-flash'); 
+            void targetInput.offsetWidth; 
+            targetInput.classList.add('cell-flash');
+        }
+    }
+});
+
+function handleMathFocus(input) {
+    if (input.dataset.formula) {
+        input.value = input.dataset.formula; 
+    }
+    if (input.value.startsWith('=')) {
+        activeFormulaInput = input;
+        input.classList.add('formula-mode-active');
+    } else {
+        activeFormulaInput = null;
+        input.classList.remove('formula-mode-active');
+    }
+}
+
+function handleMathInput(input) {
+    let val = input.value;
+    if (val.startsWith('=')) {
+        activeFormulaInput = input; 
+        input.classList.add('formula-mode-active');
+        
+        let cursorPosition = input.selectionStart;
+        let originalLength = input.value.length;
+        
+        let cleanVal = '=' + val.substring(1).toUpperCase().replace(/[^0-9.\-+*/()CDE]/g, '');
+        input.value = cleanVal; 
+        
+        cursorPosition += (cleanVal.length - originalLength);
+        input.setSelectionRange(cursorPosition, cursorPosition);
+    } else {
+        activeFormulaInput = null; 
+        input.classList.remove('formula-mode-active');
+        
+        formatCurrencyInput(input);
+        input.dataset.formula = "";
+    }
+    recalculateAllFormulas();
+    calcTotals();
+}
+
+function handleMathBlur(input) {
+    activeFormulaInput = null;
+    input.classList.remove('formula-mode-active');
+    
+    let val = input.value.trim();
+    if (val.startsWith('=')) {
+        input.dataset.formula = val;
+        let result = evaluateFormula(val);
+        input.value = result !== 0 ? result.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';
+    } else {
+        input.dataset.formula = "";
+        let result = parseCurrency(val);
+        input.value = result !== 0 ? result.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';
+    }
+    recalculateAllFormulas();
+    calcTotals();
+}
+
+function handleMathKeydown(e, input) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur(); 
+    }
+}
+
+function getNumericValue(input) {
+    let val = input.value.trim();
+    if (val.startsWith('=')) {
+        return evaluateFormula(val);
+    }
+    if (input.dataset.formula && val === '') {
+        return 0; 
+    }
+    return parseCurrency(val);
+}
+
+function updateRowNumbers() {
+    document.querySelectorAll('.line-row').forEach((row, index) => {
+        const rowNum = index + 1;
+        const handle = row.querySelector('.drag-handle');
+        if(handle) {
+            handle.innerHTML = `<span style="font-size:0.65rem; color:var(--accent); font-weight:bold; margin-right:4px;">${rowNum}</span>⋮⋮`;
+        }
+        
+        const pInput = row.querySelector('.input-parcial');
+        const dInput = row.querySelector('.input-debe');
+        const hInput = row.querySelector('.input-haber');
+        if(pInput) pInput.dataset.cell = `E${rowNum}`;
+        if(dInput) dInput.dataset.cell = `C${rowNum}`;
+        if(hInput) hInput.dataset.cell = `D${rowNum}`;
+    });
+    recalculateAllFormulas(); 
+    calcTotals();
+}
+
+// --- LÓGICA DE BACKUPS OPERATIVOS ---
+async function exportOperationalData() {
+    if (journal.length === 0 && templates.length === 0) {
+        showToast("No hay asientos ni plantillas operativas para exportar.");
+        return;
+    }
+
+    const cuentas_nuevas = dbCatalog.filter(c => !baseCatalog.some(b => b.c === c.c));
+    
+    const data = {
+        asientos: journal,
+        plantillas: templates,
+        cuentas_nuevas: cuentas_nuevas,
+        metadata: {
+            fecha_exportacion: new Date().toISOString(),
+            version: "1.0",
+            requiere_catalogo: true
+        }
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+    saveAs(blob, `backup_operativo_${Date.now()}.json`);
+    showToast("Datos operativos exportados correctamente.");
+}
+
+async function handleImportBackupChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        try {
+            const data = JSON.parse(event.target.result);
+            await importOperationalData(data);
+        } catch (err) {
+            showCustomModal('Error de Lectura', 'Archivo inválido', 'alert');
+        }
+        e.target.value = ''; 
+    };
+    reader.readAsText(file);
+}
+
+async function importOperationalData(data) {
+    if (!baseCatalog || baseCatalog.length === 0) {
+        showCustomModal('Error Crítico', 'Debe cargar un catálogo de cuentas antes de importar datos', 'alert');
+        return;
+    }
+
+    if (!data.asientos || !data.plantillas || !data.cuentas_nuevas || !data.metadata) {
+        showCustomModal('Estructura Inválida', 'Archivo inválido', 'alert');
+        return;
+    }
+
+    const confirmMsg = '¿Está seguro de importar este backup? Esto reemplazará TODOS los asientos, plantillas y cuentas creadas manualmente. (El catálogo base se mantendrá intacto).';
+    const confirm = await showCustomModal('Importar Backup', confirmMsg, 'confirm');
+    if (!confirm) return;
+
+    const combinedCatalog = [...baseCatalog, ...data.cuentas_nuevas];
+    const catalogCodes = new Set(combinedCatalog.map(c => c.c));
+
+    let allValid = true;
+    
+    for (let newAcc of data.cuentas_nuevas) {
+        const parentCode = getParentCode(newAcc.c);
+        if (parentCode !== null && !catalogCodes.has(parentCode)) {
+            allValid = false;
+            break;
+        }
+    }
+
+    const checkLines = (lines) => {
+        for (let l of lines) {
+            if (!catalogCodes.has(l.c)) return false;
+        }
+        return true;
+    };
+
+    if (allValid) {
+        for (let a of data.asientos) { if (!checkLines(a.lines)) { allValid = false; break; } }
+    }
+    if (allValid) {
+        for (let t of data.plantillas) { if (!checkLines(t.lines)) { allValid = false; break; } }
+    }
+
+    if (!allValid) {
+        showCustomModal('Error de Consistencia', 'Existen cuentas que no están en el catálogo ni en las cuentas nuevas', 'alert');
+        return;
+    }
+
+    dbCatalog = combinedCatalog;
+    journal = data.asientos;
+    templates = data.plantillas;
+
+    localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
+    localStorage.setItem(STORAGE_JOURNAL, JSON.stringify(journal));
+    localStorage.setItem(STORAGE_TEMPLATES, JSON.stringify(templates));
+
+    if (modoApp === "sync") {
+        syncToCloudAfterImport(data.asientos);
+    }
+
+    initApp(); 
+    showToast('Datos operativos cargados correctamente.');
+}
+
+async function syncToCloudAfterImport(asientosData) {
+    if (modoApp !== "sync" || !supabaseClient) return;
+    try {
+        for (let entry of asientosData) {
+            await supabaseClient.from('asientos').upsert({ id: entry.id, fecha: entry.date, descripcion: entry.glosa, orden: entry.orden });
+            await supabaseClient.from('movimientos').delete().eq('asiento_id', entry.id);
+            
+            const movs = [];
+            for (let l of entry.lines) {
+                if (!mapaCuentas[l.c]) continue; 
+                movs.push({
+                    asiento_id: entry.id,
+                    cuenta_id: mapaCuentas[l.c],
+                    debe: l.d,
+                    haber: l.h
+                });
+            }
+            
+            if (movs.length > 0) {
+                await supabaseClient.from('movimientos').insert(movs);
+            }
+        }
+    } catch (e) {
+        console.error("Fallo al subir importación a Supabase", e);
+    }
+}
+
+// --- LÓGICA DE PLANTILLAS DE ASIENTOS ---
+function renderTemplateSelector() {
+    const selector = document.getElementById('template-selector');
+    if(!selector) return;
+    
+    let html = '<option value="">📁 Cargar Plantilla...</option>';
+    templates.forEach(t => {
+        html += `<option value="${t.id}">${t.name}</option>`;
+    });
+    
+    if (templates.length > 0) {
+        html += `<option disabled>──────────────</option>`;
+        html += `<option value="_manage">⚙️ Administrar Plantillas...</option>`;
+    }
+    
+    selector.innerHTML = html;
+}
+
+function showCustomModal(title, msg, type = 'alert', placeholder = '') {
+    return new Promise(resolve => {
+        const m = document.getElementById('custom-modal');
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-message').textContent = msg;
+        
+        const input = document.getElementById('modal-input');
+        const btnCancel = document.getElementById('modal-cancel');
+        const btnConfirm = document.getElementById('modal-confirm');
+        
+        if (type === 'prompt') {
+            input.style.display = 'block';
+            input.value = '';
+            input.placeholder = placeholder;
+        } else {
+            input.style.display = 'none';
+        }
+        
+        btnCancel.style.display = (type !== 'alert') ? 'block' : 'none';
+        
+        m.style.display = 'flex';
+        if(type === 'prompt') setTimeout(() => input.focus(), 100);
+
+        btnCancel.onclick = () => { m.style.display = 'none'; resolve(null); };
+        btnConfirm.onclick = () => { 
+            m.style.display = 'none'; 
+            resolve(type === 'prompt' ? input.value : true); 
+        };
+    });
+}
+
+async function saveTemplate() {
+    const lines = [];
+    let hasErrors = false;
+
+    document.querySelectorAll('.line-row').forEach((row, index) => {
+        const c = row.dataset.selectedCode;
+        const typeBtn = row.querySelector('.btn-toggle-type');
+        
+        if (c) {
+            lines.push({ c: c, t: typeBtn ? typeBtn.dataset.type : 'D', order: index });
+        } else if (row.querySelector('.input-code').value.trim() !== '') {
+            hasErrors = true; 
+        }
+    });
+
+    if (hasErrors) { showToast("Hay cuentas inválidas. Corríjalas antes de guardar la plantilla."); return; }
+    if (lines.length === 0) { showToast("El asiento está vacío. Añada líneas primero."); return; }
+
+    const name = await showCustomModal('Guardar Plantilla', 'Ingrese un nombre descriptivo para esta plantilla de asiento:', 'prompt', 'Ej: Nómina mensual');
+    if (!name || !name.trim()) return;
+
+    if (templates.some(t => t.name.toLowerCase() === name.trim().toLowerCase())) {
+        const overwrite = await showCustomModal('Plantilla duplicada', `Ya existe una plantilla llamada "${name.trim()}". ¿Desea guardarla de todas formas?`, 'confirm');
+        if(!overwrite) return;
+    }
+
+    const newTemplate = {
+        id: generateUUID(),
+        name: name.trim(),
+        createdAt: new Date().toISOString(),
+        lines: lines
+    };
+
+    templates.push(newTemplate);
+    localStorage.setItem(STORAGE_TEMPLATES, JSON.stringify(templates));
+    renderTemplateSelector();
+    showToast("Plantilla guardada exitosamente.");
+}
+
+async function loadTemplateSelect(el) {
+    const val = el.value;
+    el.value = ""; 
+    
+    if (!val) return;
+    
+    if (val === '_manage') {
+        manageTemplates();
+        return;
+    }
+
+    const template = templates.find(t => t.id === val);
+    if (!template) return;
+    
+    const confirmLoad = await showCustomModal('Cargar Plantilla', `¿Cargar plantilla "${template.name}"? Esto reemplazará las líneas actuales del voucher.`, 'confirm');
+    if (!confirmLoad) return;
+
+    document.getElementById('lines-container').innerHTML = '';
+    
+    let missingAccounts = 0;
+    
+    template.lines.forEach(l => {
+        const account = dbCatalog.find(x => x.c === l.c);
+        if (account) {
+            addLine(account.c, account.n, l.t);
+        } else {
+            missingAccounts++;
+            addLine('', '', l.t);
+        }
+    });
+
+    if (missingAccounts > 0) {
+        showToast(`Se cargó la plantilla, pero ${missingAccounts} cuenta(s) ya no existen en el catálogo actual.`);
+    } else {
+        showToast("Plantilla aplicada con éxito.");
+    }
+    
+    calcTotals();
+}
+
+async function manageTemplates() {
+    if (templates.length === 0) { showToast("No hay plantillas guardadas."); return; }
+    
+    let msg = "Tus plantillas guardadas:\n\n";
+    templates.forEach((t, i) => msg += `${i + 1}. ${t.name}\n`);
+    msg += "\nEscribe el NÚMERO de la plantilla que deseas ELIMINAR:";
+    
+    const res = await showCustomModal('Administrar Plantillas', msg, 'prompt', 'Ej: 1');
+    if (res) {
+        const idx = parseInt(res) - 1;
+        if (idx >= 0 && idx < templates.length) {
+            const deletedName = templates[idx].name;
+            templates.splice(idx, 1);
+            localStorage.setItem(STORAGE_TEMPLATES, JSON.stringify(templates));
+            renderTemplateSelector();
+            showToast(`Plantilla "${deletedName}" eliminada permanentemente.`);
+        } else {
+            showToast("Número inválido.");
+        }
+    }
+}
+
+// --- PROCESAMIENTO CSV MASIVO ---
+document.getElementById('csv-input').onchange = async (e) => {
     const file = e.target.files[0];
     if(!file) return;
 
+    const uploadZone = document.querySelector('.upload-zone');
+    const originalUploadHTML = uploadZone.innerHTML;
+    uploadZone.innerHTML = `<div style="font-size:3rem">⏳</div><p>Procesando catálogo... Por favor espere.</p>`;
+    uploadZone.style.pointerEvents = 'none';
+
     Papa.parse(file, {
         header: true,
-        complete: (results) => {
+        complete: async (results) => {
             const cleanData = results.data.map(row => {
-                const code = (row['CÓDIGO'] || row['CODIGO'] || '').toString().replace(/['\s]/g, '').trim();
-                const name = (row['NOMBRE DE CUENTA'] || row['CUENTA'] || '').toString().trim();
+                const keys = Object.keys(row);
+                const codigoKey = keys.find(k => k.toUpperCase().includes('CÓDIGO') || k.toUpperCase().includes('CODIGO'));
+                const cuentaKey = keys.find(k => k.toUpperCase().includes('NOMBRE') || k.toUpperCase().includes('CUENTA'));
+                
+                const code = (row[codigoKey] || '').toString().replace(/['\s]/g, '').trim();
+                const name = (row[cuentaKey] || '').toString().trim();
                 return { c: code, n: name, l: code.length <= 1 ? 1 : (code.length <= 2 ? 2 : (code.length <= 4 ? 3 : 4)) };
             }).filter(x => x.c && x.n);
 
             if(cleanData.length > 0) {
-                dbCatalog = cleanData;
-                localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
-                initApp();
-                showToast(`Motor activado: ${dbCatalog.length} cuentas.`);
+                try {
+                    let localMap = {};
+                    let insertedCount = 0;
+                    
+                    if (modoApp === "sync" && supabaseClient) {
+                        const { data: existingCuentas, error: errFetch } = await supabaseClient.from('cuentas').select('id, codigo');
+                        if (errFetch) throw errFetch;
+                        if (existingCuentas) {
+                            existingCuentas.forEach(c => localMap[c.codigo] = c.id);
+                        }
+                    }
+
+                    cleanData.sort((a, b) => a.c.length - b.c.length);
+                    let accountsToInsert = [];
+
+                    for (let acc of cleanData) {
+                        if (localMap[acc.c]) continue;
+
+                        let parentUuid = null;
+                        let parentCode = getParentCode(acc.c);
+                        if (parentCode && localMap[parentCode]) {
+                            parentUuid = localMap[parentCode]; 
+                        }
+
+                        const newId = generateUUID();
+                        localMap[acc.c] = newId;
+
+                        accountsToInsert.push({
+                            id: newId,
+                            codigo: acc.c,
+                            nombre: acc.n,
+                            parent_id: parentUuid
+                        });
+                    }
+
+                    if (modoApp === "sync" && supabaseClient && accountsToInsert.length > 0) {
+                        const { error: errIns } = await supabaseClient.from('cuentas').insert(accountsToInsert);
+                        if (errIns) throw errIns;
+                        insertedCount = accountsToInsert.length;
+                    } else if (modoApp === "local" || !supabaseClient) {
+                        insertedCount = accountsToInsert.length;
+                    }
+
+                    mapaCuentas = { ...localMap };
+                    mapaCuentasInverso = {};
+                    Object.keys(mapaCuentas).forEach(code => {
+                        mapaCuentasInverso[mapaCuentas[code]] = code;
+                    });
+
+                    dbCatalog = cleanData;
+                    baseCatalog = [...cleanData];
+                    localStorage.setItem(STORAGE_BASE_CUC, JSON.stringify(baseCatalog));
+                    localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
+                    
+                    uploadZone.innerHTML = originalUploadHTML;
+                    uploadZone.style.pointerEvents = 'auto';
+                    
+                    initApp();
+                    showToast(modoApp === "sync" ? `Catálogo sincronizado. ${insertedCount} cuentas nuevas en la nube.` : `Catálogo cargado en local. ${insertedCount} cuentas listas.`);
+                } catch (error) {
+                    console.error("Error sincronizando CSV:", error);
+                    showToast("Error de conexión. Se cargó en modo local.");
+                    
+                    dbCatalog = cleanData;
+                    baseCatalog = [...cleanData];
+                    localStorage.setItem(STORAGE_BASE_CUC, JSON.stringify(baseCatalog));
+                    localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
+                    
+                    uploadZone.innerHTML = originalUploadHTML;
+                    uploadZone.style.pointerEvents = 'auto';
+                    initApp();
+                }
             } else {
-                alert("Formato no válido. Verifica las columnas.");
+                uploadZone.innerHTML = originalUploadHTML;
+                uploadZone.style.pointerEvents = 'auto';
+                showToast("Formato no válido. Verifica que existan las columnas CÓDIGO y NOMBRE DE CUENTA.");
             }
         }
     });
 };
 
 // --- LÓGICA VOUCHER ---
-function addLine() {
-    const id = Date.now() + Math.random();
+function addLine(prefillCode = '', prefillName = '', prefillType = 'D', pVal = '', dVal = '', hVal = '', pForm = '', dForm = '', hForm = '') {
+    const id = generateUUID(); 
+    const typeLabel = prefillType === 'H' ? 'HABER' : 'DEBE';
+    const typeClass = prefillType === 'H' ? 'btn-toggle-type btn-haber' : 'btn-toggle-type btn-debe';
+    
+    const formatFmt = (val) => val > 0 ? parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';
+
     const html = `
-        <div class="line-row" id="row-${id}">
+        <div class="line-row" id="row-${id}" draggable="true" data-selected-code="${prefillCode}">
+            <div class="drag-handle" title="Arrastrar para reordenar">⋮⋮</div>
             <div class="autocomplete-wrapper">
-                <input type="text" class="input-code mono" placeholder="Código o Nombre..." oninput="handleSearch(this)">
+                <input type="text" class="input-code mono" placeholder="Código o Nombre..." autocomplete="off" 
+                    oninput="handleSearch(this)" onkeydown="handleSearchKeydown(event, this)" onblur="handleBlurSearch(this)" value="${prefillCode}">
                 <div class="suggestions"></div>
             </div>
-            <input type="text" class="input-name" placeholder="Cuenta..." readonly style="background:var(--bg)">
-            <button type="button" class="btn-toggle-type btn-debe" data-type="D" onclick="toggleType(this)">DEBE</button>
-            <input type="number" step="0.01" class="input-parcial text-right mono" placeholder="0.00">
-            <input type="number" step="0.01" class="input-debe text-right mono" placeholder="0.00" oninput="calcTotals()">
-            <input type="number" step="0.01" class="input-haber text-right mono" placeholder="0.00" oninput="calcTotals()">
-            <button class="btn btn-danger" onclick="document.getElementById('row-${id}').remove(); calcTotals()">✕</button>
+            <input type="text" class="input-name" placeholder="Cuenta..." readonly style="background:var(--bg)"
+                onblur="finalizeCreation(this)" onkeydown="handleNameKeydown(event, this)" value="${prefillName}">
+            <button type="button" class="${typeClass}" data-type="${prefillType}" onclick="toggleType(this)">${typeLabel}</button>
+            <input type="text" class="input-parcial text-right mono" placeholder="E (Parcial)" data-formula="${pForm || ''}" value="${pForm || formatFmt(pVal)}" onfocus="handleMathFocus(this)" oninput="handleMathInput(this)" onblur="handleMathBlur(this)" onkeydown="handleMathKeydown(event, this)">
+            <input type="text" class="input-debe text-right mono" placeholder="C (Débito)" data-formula="${dForm || ''}" value="${dForm || formatFmt(dVal)}" onfocus="handleMathFocus(this)" oninput="handleMathInput(this)" onblur="handleMathBlur(this)" onkeydown="handleMathKeydown(event, this)">
+            <input type="text" class="input-haber text-right mono" placeholder="D (Crédito)" data-formula="${hForm || ''}" value="${hForm || formatFmt(hVal)}" onfocus="handleMathFocus(this)" oninput="handleMathInput(this)" onblur="handleMathBlur(this)" onkeydown="handleMathKeydown(event, this)">
+            <button class="btn btn-danger" onclick="this.closest('.line-row').remove(); updateRowNumbers();">✕</button>
         </div>
     `;
     document.getElementById('lines-container').insertAdjacentHTML('beforeend', html);
+    updateRowNumbers();
+    
+    if(pForm || dForm || hForm) {
+        setTimeout(() => calcTotals(), 50);
+    }
 }
 
 function toggleType(btn) {
@@ -317,17 +1220,34 @@ function toggleType(btn) {
     }
 }
 
-/**
- * BUSCADOR MEJORADO CON OPCIÓN DE CREAR CUENTA
- */
+function getParentCode(code) {
+    if (code.length <= 1) return null; 
+    if (code.length === 2) return code.substring(0, 1); 
+    if (code.length === 3 || code.length === 4) return code.substring(0, 2); 
+    return code.substring(0, code.length - 2); 
+}
+
 function handleSearch(el) {
     const query = el.value.trim().toLowerCase();
     const suggest = el.nextElementSibling;
+    const row = el.closest('.line-row');
+
+    if ((row.dataset.selectedCode && row.dataset.selectedCode !== el.value.trim()) || row.dataset.creatingCode) {
+        row.dataset.selectedCode = "";
+        delete row.dataset.creatingCode;
+        
+        const nameInput = row.querySelector('.input-name');
+        nameInput.value = "";
+        nameInput.readOnly = true;
+        nameInput.classList.remove('creating-mode');
+        nameInput.placeholder = "Cuenta...";
+        el.classList.remove('error');
+    }
+
     if(!query) { suggest.style.display = 'none'; return; }
 
-    const rowId = el.closest('.line-row').id;
+    const rowId = row.id;
 
-    // Filtrado y ordenamiento inteligente
     const matches = dbCatalog
         .filter(x => x.c.includes(query) || x.n.toLowerCase().includes(query))
         .sort((a, b) => {
@@ -335,7 +1255,7 @@ function handleSearch(el) {
             const bStart = b.c.startsWith(query);
             if (aStart && !bStart) return -1;
             if (!aStart && bStart) return 1;
-            return a.c.localeCompare(b.c, undefined, {numeric: true});
+            return a.c.localeCompare(b.c);
         })
         .slice(0, 15);
 
@@ -346,12 +1266,11 @@ function handleSearch(el) {
         </div>
     `).join('');
 
-    // Si no hay match exacto por código o nombre, permitir crearla
     const exactMatch = dbCatalog.find(x => x.c === query || x.n.toLowerCase() === query);
-    if (!exactMatch) {
+    if (!exactMatch && /^\d+$/.test(query)) {
         html += `
-            <div class="suggestion-item btn-create-acc" onclick="promptCreateAcc('${rowId}', '${query}')">
-                + Crear cuenta "${query}"
+            <div class="suggestion-item btn-create-acc" onclick="activateCreationMode('${rowId}', '${query}')">
+                + Crear cuenta "${query}" (Presione Enter)
             </div>
         `;
     }
@@ -364,110 +1283,444 @@ function handleSearch(el) {
     }
 }
 
-/**
- * FUNCIÓN PARA CREAR CUENTA SOBRE LA MARCHA
- */
-function promptCreateAcc(rowId, query) {
-    let code = "";
-    let name = "";
-
-    // Si el query parece un código (solo números), pedimos el nombre
-    if(/^\d+$/.test(query)) {
-        code = query;
-        name = prompt("Ingrese el NOMBRE para el código " + code);
-    } else {
-        // Si el query es texto, pedimos el código
-        name = query.toUpperCase();
-        code = prompt("Ingrese el CÓDIGO para la cuenta: " + name);
+function handleSearchKeydown(e, el) {
+    const suggest = el.nextElementSibling;
+    if (suggest.style.display === 'none') {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            el.blur(); 
+        }
+        return;
     }
 
-    if(code && name) {
-        const newAcc = { 
-            c: code.trim(), 
-            n: name.trim(), 
-            l: code.length <= 4 ? 3 : 4 // Estimación simple de nivel
-        };
-        
-        // Verificar si el código ya existe (por si acaso)
-        if(dbCatalog.some(x => x.c === newAcc.c)) {
-            alert("Este código ya existe.");
+    const items = suggest.querySelectorAll('.suggestion-item');
+    if (items.length === 0) return;
+
+    let activeIdx = Array.from(items).findIndex(item => item.classList.contains('active-suggestion'));
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (activeIdx >= 0) items[activeIdx].classList.remove('active-suggestion');
+        activeIdx = (activeIdx + 1) % items.length;
+        items[activeIdx].classList.add('active-suggestion');
+        items[activeIdx].scrollIntoView({block: "nearest"});
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (activeIdx >= 0) items[activeIdx].classList.remove('active-suggestion');
+        activeIdx = (activeIdx - 1 + items.length) % items.length;
+        items[activeIdx].classList.add('active-suggestion');
+        items[activeIdx].scrollIntoView({block: "nearest"});
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0) {
+            items[activeIdx].click(); 
+        } else {
+            el.blur(); 
+        }
+    }
+}
+
+function handleBlurSearch(el) {
+    setTimeout(() => {
+        const query = el.value.trim();
+        const row = el.closest('.line-row');
+        const suggest = el.nextElementSibling;
+        suggest.style.display = 'none';
+
+        if (row.dataset.creatingCode) return; 
+
+        if (!query) {
+            row.dataset.selectedCode = "";
+            row.querySelector('.input-name').value = "";
+            el.classList.remove('error');
             return;
         }
 
-        dbCatalog.push(newAcc);
-        // Guardar permanentemente
-        localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
+        if (row.dataset.selectedCode && row.dataset.selectedCode === query) {
+            el.classList.remove('error');
+            return;
+        }
+
+        const queryLower = query.toLowerCase();
         
-        // Actualizar UI
-        document.getElementById('db-status').textContent = `DB: ${dbCatalog.length} registros`;
-        selectAcc(rowId, newAcc.c, newAcc.n);
-        showToast("Cuenta creada y guardada.");
+        const exactCode = dbCatalog.filter(x => x.c.toLowerCase() === queryLower);
+        if (exactCode.length === 1) {
+            selectAcc(row.id, exactCode[0].c, exactCode[0].n);
+            return;
+        }
+
+        const exactName = dbCatalog.filter(x => x.n.toLowerCase() === queryLower);
+        if (exactName.length === 1) {
+            selectAcc(row.id, exactName[0].c, exactName[0].n);
+            return;
+        }
+
+        if (/^\d+$/.test(query)) {
+            activateCreationMode(row.id, query);
+            return;
+        }
+
+        showToast("Debe seleccionar una cuenta válida del listado.");
+        el.classList.add('error');
+        el.value = "";
+        row.querySelector('.input-name').value = "";
+        row.dataset.selectedCode = "";
+        
+    }, 150); 
+}
+
+function activateCreationMode(rowId, query) {
+    const row = document.getElementById(rowId);
+    const inputCode = row.querySelector('.input-code');
+    const inputName = row.querySelector('.input-name');
+
+    const parentCode = getParentCode(query);
+    if (parentCode !== null && !dbCatalog.some(x => x.c === parentCode)) {
+        showToast(`No se puede crear: No existe la cuenta padre (${parentCode})`);
+        inputCode.classList.add('error');
+        row.dataset.selectedCode = "";
+        return; 
     }
+
+    row.dataset.creatingCode = query;
+    inputCode.value = query;
+    inputCode.classList.remove('error');
+    
+    inputName.readOnly = false;
+    inputName.value = "";
+    inputName.placeholder = "Ingrese el nombre de la nueva cuenta...";
+    inputName.classList.add('creating-mode');
+    
+    setTimeout(() => inputName.focus(), 50);
+}
+
+function handleNameKeydown(e, el) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        el.blur(); 
+    }
+}
+
+async function finalizeCreation(el) {
+    const row = el.closest('.line-row');
+    if (!row.dataset.creatingCode) return; 
+
+    const code = row.dataset.creatingCode;
+    const name = el.value.trim(); 
+
+    el.readOnly = true;
+    el.classList.remove('creating-mode');
+    el.placeholder = "Cuenta...";
+
+    if (!name) {
+        showToast("Creación cancelada: Nombre vacío.");
+        row.querySelector('.input-code').value = "";
+        row.querySelector('.input-code').classList.add('error');
+        delete row.dataset.creatingCode;
+        return;
+    }
+
+    const newAcc = { 
+        c: code, 
+        n: name, 
+        l: code.length <= 1 ? 1 : (code.length <= 2 ? 2 : (code.length <= 4 ? 3 : 4)) 
+    };
+    
+    if(!dbCatalog.some(x => x.c === newAcc.c)) {
+        let parentUuid = null;
+        let parentCode = getParentCode(code);
+        if (parentCode && mapaCuentas[parentCode]) {
+            parentUuid = mapaCuentas[parentCode];
+        }
+
+        if (modoApp === "sync" && supabaseClient) {
+            try {
+                const { data, error } = await supabaseClient.from('cuentas')
+                    .insert([{ codigo: code, nombre: name, parent_id: parentUuid }])
+                    .select();
+
+                if (!error && data && data.length > 0) {
+                    mapaCuentas[code] = data[0].id;
+                    mapaCuentasInverso[data[0].id] = code;
+                } else {
+                    throw error || new Error("No devolvió datos");
+                }
+            } catch (err) {
+                console.error("Error insertando cuenta", err);
+                const fallbackId = generateUUID();
+                mapaCuentas[code] = fallbackId;
+                mapaCuentasInverso[fallbackId] = code;
+            }
+        } else {
+            const fallbackId = generateUUID();
+            mapaCuentas[code] = fallbackId;
+            mapaCuentasInverso[fallbackId] = code;
+        }
+
+        dbCatalog.push(newAcc);
+        localStorage.setItem(STORAGE_CUC, JSON.stringify(dbCatalog));
+        document.getElementById('db-status').textContent = `DB: ${dbCatalog.length} registros`;
+        showToast(modoApp === "sync" ? "Cuenta creada y sincronizada." : "Cuenta creada localmente.");
+        renderMayorTree(); 
+    }
+
+    selectAcc(row.id, code, name);
 }
 
 function selectAcc(rowId, code, name) {
     const row = document.getElementById(rowId);
-    row.querySelector('.input-code').value = code;
-    row.querySelector('.input-name').value = name;
+    const inputCode = row.querySelector('.input-code');
+    const inputName = row.querySelector('.input-name');
+    
+    inputCode.value = code;
+    inputCode.classList.remove('error');
+    
+    inputName.value = name;
+    inputName.readOnly = true;
+    inputName.classList.remove('creating-mode');
+    inputName.placeholder = "Cuenta...";
+    
+    delete row.dataset.creatingCode;
+    row.dataset.selectedCode = code; 
     row.querySelector('.suggestions').style.display = 'none';
 }
 
 function calcTotals() {
     let d = 0, h = 0;
-    document.querySelectorAll('.input-debe').forEach(el => d += parseFloat(el.value || 0));
-    document.querySelectorAll('.input-haber').forEach(el => h += parseFloat(el.value || 0));
+    document.querySelectorAll('.input-debe').forEach(el => d += getNumericValue(el));
+    document.querySelectorAll('.input-haber').forEach(el => h += getNumericValue(el));
     
-    document.getElementById('total-debe').textContent = d.toFixed(2);
-    document.getElementById('total-haber').textContent = h.toFixed(2);
+    document.getElementById('total-debe').textContent = d.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('total-haber').textContent = h.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const diff = Math.abs(d - h);
-    document.getElementById('total-diff').textContent = diff.toFixed(2);
+    document.getElementById('total-diff').textContent = diff.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('total-diff').style.color = diff < 0.01 ? 'var(--green)' : 'var(--red)';
 }
 
-function postEntry() {
+function editEntry(id) {
+    const entry = journal.find(e => e.id === id);
+    if (!entry) return;
+
+    editingEntryId = id;
+    document.getElementById('form-title').textContent = "✏️ Editando Asiento";
+    document.getElementById('entry-form-container').classList.add('editing-mode-active');
+    document.getElementById('btn-post-entry').textContent = "Actualizar Asiento";
+    document.getElementById('btn-cancel-edit').style.display = "inline-flex";
+
+    document.getElementById('entry-date').value = entry.date;
+    document.getElementById('entry-glosa').value = entry.glosa;
+
+    document.getElementById('lines-container').innerHTML = '';
+    entry.lines.forEach(l => {
+        addLine(l.c, l.n, l.t, l.p, l.d, l.h, l.p_formula, l.d_formula, l.h_formula);
+    });
+
+    calcTotals();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEdit(showMsg = true) {
+    editingEntryId = null;
+    document.getElementById('form-title').textContent = "Voucher Contable";
+    document.getElementById('entry-form-container').classList.remove('editing-mode-active');
+    document.getElementById('btn-post-entry').textContent = "Postear Asiento";
+    document.getElementById('btn-cancel-edit').style.display = "none";
+    
+    document.getElementById('entry-date').valueAsDate = new Date();
+    document.getElementById('entry-glosa').value = '';
+    
+    document.getElementById('lines-container').innerHTML = '';
+    for(let i=0; i<3; i++) addLine();
+    calcTotals();
+    
+    if (showMsg) showToast("Formulario limpiado y acción cancelada.");
+}
+
+async function duplicateEntry(id) {
+    const original = journal.find(e => e.id === id);
+    if (!original) return;
+
+    editingEntryId = null; 
+    
+    document.getElementById('form-title').textContent = "📄 Nuevo Asiento (Basado en repetición)";
+    document.getElementById('entry-form-container').classList.remove('editing-mode-active');
+    document.getElementById('btn-post-entry').textContent = "Postear Asiento";
+    document.getElementById('btn-cancel-edit').style.display = "inline-flex";
+
+    document.getElementById('entry-date').value = original.date;
+    document.getElementById('entry-glosa').value = original.glosa + " (Copia)";
+
+    document.getElementById('lines-container').innerHTML = '';
+    original.lines.forEach(l => {
+        addLine(l.c, l.n, l.t, l.p, l.d, l.h, l.p_formula, l.d_formula, l.h_formula);
+    });
+
+    calcTotals();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast("Asiento cargado como borrador. Guarde los cambios para registrarlo.");
+}
+
+async function postEntry() {
     const date = document.getElementById('entry-date').value;
     const glosa = document.getElementById('entry-glosa').value;
-    const totD = parseFloat(document.getElementById('total-debe').textContent);
-    const totH = parseFloat(document.getElementById('total-haber').textContent);
+    const totD = parseCurrency(document.getElementById('total-debe').textContent);
+    const totH = parseCurrency(document.getElementById('total-haber').textContent);
 
-    if(!date || !glosa) return alert("Fecha y Glosa obligatorias");
-    if(Math.abs(totD - totH) > 0.01 || totD === 0) return alert("Asiento descuadrado o vacío");
+    if(!date || !glosa) { showToast("Fecha y Glosa obligatorias"); return; }
+    if(Math.abs(totD - totH) > 0.01 || totD === 0) { showToast("Asiento descuadrado o vacío"); return; }
 
     const lines = [];
+    let hasErrors = false;
+
     document.querySelectorAll('.line-row').forEach(row => {
-        const c = row.querySelector('.input-code').value;
+        const c = row.dataset.selectedCode; 
+        const inputValue = row.querySelector('.input-code').value;
         const n = row.querySelector('.input-name').value;
         const typeBtn = row.querySelector('.btn-toggle-type');
-        if(c && n) {
+        
+        if (inputValue && !c) {
+            hasErrors = true;
+            row.querySelector('.input-code').classList.add('error');
+        } else if (c && n) {
+            const pInput = row.querySelector('.input-parcial');
+            const dInput = row.querySelector('.input-debe');
+            const hInput = row.querySelector('.input-haber');
+
             lines.push({
                 c, n, 
                 t: typeBtn ? typeBtn.dataset.type : null,
-                p: parseFloat(row.querySelector('.input-parcial').value || 0),
-                d: parseFloat(row.querySelector('.input-debe').value || 0),
-                h: parseFloat(row.querySelector('.input-haber').value || 0)
+                p: getNumericValue(pInput),
+                p_formula: pInput.dataset.formula || null,
+                d: getNumericValue(dInput),
+                d_formula: dInput.dataset.formula || null,
+                h: getNumericValue(hInput),
+                h_formula: hInput.dataset.formula || null
             });
         }
     });
 
-    journal.push({ id: Date.now(), date, glosa, lines });
+    if(hasErrors) {
+        showToast("Existen cuentas sin validar. Debe seleccionar o crear correctamente las cuentas en rojo.");
+        return;
+    }
+
+    let finalId = editingEntryId;
+    const originalEntry = editingEntryId ? journal.find(e => e.id === editingEntryId) : null;
+    let finalOrden = originalEntry ? originalEntry.orden : 1;
+
+    if (modoApp === "sync" && supabaseClient) {
+        try {
+            if (editingEntryId) {
+                const { error: errA } = await supabaseClient.from('asientos').update({
+                    fecha: date,
+                    descripcion: glosa
+                }).eq('id', editingEntryId);
+                if (errA) throw errA;
+
+                const { error: errDel } = await supabaseClient.from('movimientos').delete().eq('asiento_id', editingEntryId);
+                if (errDel) throw errDel;
+
+            } else {
+                const { data: maxData, error: errMax } = await supabaseClient
+                    .from("asientos")
+                    .select("orden")
+                    .order("orden", { ascending: false })
+                    .limit(1);
+
+                if (!errMax && maxData && maxData.length > 0) {
+                    finalOrden = (maxData[0].orden || 0) + 1;
+                } else if (journal.length > 0) {
+                    finalOrden = journal.reduce((max, e) => Math.max(max, e.orden || 0), 0) + 1;
+                }
+
+                const { data, error: errA } = await supabaseClient.from('asientos').insert([{
+                    fecha: date,
+                    descripcion: glosa,
+                    orden: finalOrden
+                }]).select();
+                
+                if (errA) throw errA;
+                finalId = data[0].id; 
+            }
+
+            for (let l of lines) {
+                if (!mapaCuentas[l.c]) {
+                    console.warn(`La cuenta ${l.c} no tiene UUID asignado. Generando uno temporal para fallback local.`);
+                    mapaCuentas[l.c] = generateUUID();
+                    mapaCuentasInverso[mapaCuentas[l.c]] = l.c;
+                }
+            }
+
+            const movsToInsert = lines.map(l => ({
+                asiento_id: finalId,
+                cuenta_id: mapaCuentas[l.c], 
+                debe: l.d,
+                haber: l.h
+            }));
+
+            const { error: errM } = await supabaseClient.from('movimientos').insert(movsToInsert);
+            if (errM) throw errM;
+
+            showToast(editingEntryId ? "Asiento actualizado en la nube y localmente." : "Asiento posteado en la nube y localmente.");
+        } catch (error) {
+            console.error("Supabase Save Error:", error);
+            
+            if (!finalId) {
+                finalId = generateUUID();
+                finalOrden = journal.reduce((max, e) => Math.max(max, e.orden || 0), 0) + 1;
+            }
+            showToast(editingEntryId ? "Actualizado localmente (Error en nube)." : "Posteado localmente (Error en nube).");
+        }
+    } else {
+        // MODO LOCAL PURO
+        if (!finalId) {
+            finalId = generateUUID();
+            finalOrden = journal.reduce((max, e) => Math.max(max, e.orden || 0), 0) + 1;
+        }
+        showToast(editingEntryId ? "Asiento actualizado localmente." : "Asiento posteado localmente.");
+    }
+
+    const entryData = { 
+        id: finalId, 
+        date, 
+        glosa, 
+        orden: finalOrden, 
+        lines 
+    };
+
+    if (editingEntryId) {
+        const index = journal.findIndex(e => e.id === editingEntryId);
+        if (index !== -1) journal[index] = entryData;
+    } else {
+        journal.push(entryData);
+    }
+    
     localStorage.setItem(STORAGE_JOURNAL, JSON.stringify(journal));
     
-    showToast("Asiento posteado.");
-    initApp();
-    document.getElementById('entry-glosa').value = '';
+    cancelEdit(false);
+    renderJournal();
+    if(currentMayorCode) renderMayorTable(); 
 }
 
-// --- RENDERIZADOS ---
+// --- RENDERIZADO DEL DIARIO ---
 function renderJournal() {
-    const tbody = document.getElementById('journal-tbody');
-    tbody.innerHTML = '';
+    const table = document.getElementById('journal-table');
+    table.querySelectorAll('tbody').forEach(tb => tb.remove());
     
-    [...journal].reverse().forEach(entry => {
+    const formatFmt = (val) => val > 0 ? parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-';
+    
+    const sortedJournal = [...journal].sort((a, b) => (b.orden || 0) - (a.orden || 0));
+    
+    sortedJournal.forEach(entry => {
+        const tbody = document.createElement('tbody');
+        tbody.className = 'journal-entry-group hover-bg';
+        tbody.draggable = true;
+        tbody.dataset.id = entry.id;
+
         let isHaberSection = false;
         let rowsHtml = '';
 
         entry.lines.forEach((l, idx) => {
-            // Detectar la naturaleza del movimiento (con respaldo por si existen asientos viejos)
             if (l.t === 'H') isHaberSection = true;
             else if (l.t === 'D') isHaberSection = false;
             else {
@@ -476,9 +1729,7 @@ function renderJournal() {
             }
 
             let indent = 0;
-            // 1. Sangría por jerarquía (Subcuentas mayores a 4 dígitos)
             if (l.c.length > 4) indent += 1.5;
-            // 2. Sangría profunda obligatoria para las cuentas del Haber
             if (isHaberSection) indent += 3;
 
             rowsHtml += `
@@ -486,53 +1737,303 @@ function renderJournal() {
                     <td class="mono" style="font-size:0.75rem; text-align:center">${idx === 0 ? entry.date : ''}</td>
                     <td class="mono" style="font-weight:600;color:var(--accent);text-align:center">${l.c}</td>
                     <td style="padding-left:calc(1rem + ${indent}rem)">${l.n}</td>
-                    <td class="text-right mono">${l.p > 0 ? l.p.toFixed(2) : '-'}</td>
-                    <td class="text-right mono">${l.d > 0 ? l.d.toFixed(2) : '-'}</td>
-                    <td class="text-right mono">${l.h > 0 ? l.h.toFixed(2) : '-'}</td>
+                    <td class="text-right mono">${formatFmt(l.p)}</td>
+                    <td class="text-right mono">${formatFmt(l.d)}</td>
+                    <td class="text-right mono">${formatFmt(l.h)}</td>
                 </tr>
             `;
         });
         
-        // Glosa al final del asiento en cursiva
         rowsHtml += `
             <tr style="background:var(--surface2); border-bottom: 2px solid var(--border2)">
-                <td colspan="2"></td>
-                <td colspan="4" style="font-style:italic; color:var(--ink2); padding-left:1rem">
-                    v/r: ${entry.glosa} <span style="margin-left:1rem;color:var(--ink3);font-size:0.7rem">(REF: ${entry.id})</span>
+                <td class="text-center drag-handle-journal" title="Arrastrar para reordenar asiento">⋮⋮</td>
+                <td></td>
+                <td colspan="3" style="font-style:italic; color:var(--ink2); padding-left:1rem; vertical-align:middle;">
+                    v/r: ${entry.glosa} <span style="margin-left:1rem;color:var(--ink3);font-size:0.7rem">(Asiento #${entry.orden})</span>
+                </td>
+                <td class="text-right" style="white-space: nowrap;">
+                    <button class="btn btn-outline" style="padding:0.4rem 0.8rem; font-size:0.75rem; border:none; color:var(--accent); margin-right:5px;" onclick="duplicateEntry('${entry.id}')">🔄 Repetir</button>
+                    <button class="btn btn-outline" style="padding:0.4rem 0.8rem; font-size:0.75rem; border:none; color:var(--accent); margin-right:5px;" onclick="editEntry('${entry.id}')">✏️ Editar</button>
+                    <button class="btn btn-danger" style="padding:0.4rem 0.8rem; font-size:0.75rem; border:none;" onclick="deleteEntry('${entry.id}')">🗑️ Eliminar</button>
                 </td>
             </tr>
         `;
 
-        tbody.innerHTML += rowsHtml;
+        tbody.innerHTML = rowsHtml;
+        table.appendChild(tbody);
     });
 }
 
-function renderCatalog() {
-    const q = document.getElementById('cat-search').value.toLowerCase();
-    const tbody = document.getElementById('catalog-tbody');
-    const counter = document.getElementById('catalog-counter');
-    
-    const filtered = dbCatalog.filter(x => x.c.includes(q) || x.n.toLowerCase().includes(q));
+function initJournalDragAndDrop() {
+    const table = document.getElementById('journal-table');
+    let draggedEntry = null;
 
-    counter.innerHTML = `Mostrando <b>${filtered.length.toLocaleString()}</b> de <b>${dbCatalog.length.toLocaleString()}</b> registros totales`;
+    table.addEventListener('dragstart', (e) => {
+        const tbody = e.target.closest('.journal-entry-group');
+        if (tbody) {
+            draggedEntry = tbody;
+            setTimeout(() => tbody.classList.add('dragging'), 0);
+        }
+    });
 
-    tbody.innerHTML = filtered.map(x => `
-        <tr style="${x.l <= 2 ? 'font-weight:700;background:var(--bg)' : ''}">
-            <td class="mono">${x.c}</td>
-            <td style="padding-left:${(x.l-1)*15}px">${x.n}</td>
-            <td style="font-size:0.7rem;color:var(--ink3)">Nivel ${x.l}</td>
-        </tr>
-    `).join('');
+    table.addEventListener('dragend', async (e) => {
+        if (draggedEntry) {
+            draggedEntry.classList.remove('dragging');
+            draggedEntry = null;
+            updateJournalOrderFromDOM();
+        }
+    });
+
+    table.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const afterElement = getDragAfterJournalElement(table, e.clientY);
+        const tbody = e.target.closest('.journal-entry-group');
+        if (draggedEntry) {
+            if (afterElement == null) {
+                table.appendChild(draggedEntry);
+            } else {
+                table.insertBefore(draggedEntry, afterElement);
+            }
+        }
+    });
 }
 
-// --- EXCEL PRO (ADAPTADO A ESTÁNDAR UNIVERSITARIO) ---
-async function exportExcel() {
-    if(journal.length === 0) return alert("Nada que exportar");
-    
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Diario Bancario');
+function getDragAfterJournalElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.journal-entry-group:not(.dragging)')];
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
 
-    ws.columns = [
+async function updateJournalOrderFromDOM() {
+    const table = document.getElementById('journal-table');
+    const tbodies = [...table.querySelectorAll('.journal-entry-group')];
+    
+    const total = tbodies.length;
+    const entriesToUpdate = [];
+
+    tbodies.forEach((tbody, index) => {
+        const id = tbody.dataset.id;
+        const entry = journal.find(e => e.id === id);
+        if (entry) {
+            const newOrden = total - index; 
+            if (entry.orden !== newOrden) {
+                entry.orden = newOrden;
+                entriesToUpdate.push(entry);
+            }
+        }
+    });
+
+    if (entriesToUpdate.length > 0) {
+        localStorage.setItem(STORAGE_JOURNAL, JSON.stringify(journal));
+        
+        if (modoApp === "sync" && supabaseClient) {
+            try {
+                const payload = entriesToUpdate.map(e => ({
+                    id: e.id,
+                    fecha: e.date,
+                    descripcion: e.glosa,
+                    orden: e.orden
+                }));
+                const { error } = await supabaseClient.from('asientos').upsert(payload);
+                if (error) throw error;
+                showToast("Orden sincronizado en la nube.");
+            } catch (err) {
+                console.error("Error reordenando en Supabase:", err);
+                showToast("Orden actualizado localmente (Error en nube).");
+            }
+        }
+        
+        if(currentMayorCode) renderMayorTable();
+    }
+}
+
+let isDeletingEntry = false;
+async function deleteEntry(id) {
+    if (isDeletingEntry) return; 
+    isDeletingEntry = true;
+    try {
+        const confirmed = await showCustomModal('Eliminar Asiento', '¿Está seguro de eliminar este asiento? Esta acción no se puede deshacer.', 'confirm');
+        if (confirmed) {
+            const initialLength = journal.length;
+            journal = journal.filter(e => e.id !== id); 
+            
+            if (journal.length !== initialLength) {
+                localStorage.setItem(STORAGE_JOURNAL, JSON.stringify(journal)); 
+                renderJournal(); 
+                if(currentMayorCode) renderMayorTable(); 
+                
+                if (modoApp === "sync" && supabaseClient) {
+                    try {
+                        await supabaseClient.from('movimientos').delete().eq('asiento_id', id);
+                        await supabaseClient.from('asientos').delete().eq('id', id);
+                        showToast("Asiento eliminado de la nube y localmente.");
+                    } catch(e) {
+                        console.error(e);
+                        showToast("Asiento eliminado localmente (Fallo en nube).");
+                    }
+                } else {
+                    showToast("Asiento eliminado localmente.");
+                }
+            }
+        }
+    } finally {
+        isDeletingEntry = false;
+    }
+}
+
+// --- LÓGICA DE ÁRBOL DEL MAYOR Y SELECCIÓN ---
+function toggleNode(e, code) {
+    e.stopPropagation();
+    if (expandedNodes.has(code)) expandedNodes.delete(code);
+    else expandedNodes.add(code);
+    renderMayorTree();
+}
+
+function renderMayorTree() {
+    const q = document.getElementById('mayor-tree-search').value.toLowerCase();
+    const container = document.getElementById('mayor-tree-container');
+    let html = '';
+
+    const sortedCatalog = [...dbCatalog].sort((a, b) => a.c.localeCompare(b.c));
+
+    sortedCatalog.forEach(acc => {
+        const isMatch = acc.c.includes(q) || acc.n.toLowerCase().includes(q);
+        
+        let isVisible = true;
+        if (!q) {
+            let parent = getParentCode(acc.c);
+            while (parent) {
+                if (!expandedNodes.has(parent)) {
+                    isVisible = false;
+                    break;
+                }
+                parent = getParentCode(parent);
+            }
+        } else {
+            if (!isMatch) isVisible = false;
+        }
+
+        if (!isVisible) return;
+
+        const pad = (acc.l - 1) * 15;
+        const hasChildren = sortedCatalog.some(x => x.c !== acc.c && x.c.startsWith(acc.c) && x.l > acc.l);
+        
+        const toggleIcon = hasChildren 
+            ? `<span onclick="toggleNode(event, '${acc.c}')" style="cursor:pointer; width:15px; display:inline-block; text-align:center; font-size:0.7rem; color:var(--ink3)">${expandedNodes.has(acc.c) && !q ? '▼' : '▶'}</span>` 
+            : `<span style="width:15px; display:inline-block;"></span>`;
+
+        const bg = currentMayorCode === acc.c ? 'var(--accent-pale)' : 'transparent';
+        const weight = acc.l <= 2 ? 'bold' : 'normal';
+
+        html += `
+            <div style="padding-left:${pad}px; background:${bg}; padding-top:6px; padding-bottom:6px; border-radius:4px; display:flex; align-items:center; gap:5px;" class="tree-item hover-bg">
+                ${toggleIcon}
+                <div style="cursor:pointer; flex:1; font-weight:${weight}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="selectMayorAcc('${acc.c}', '${acc.n.replace(/'/g, "")}')" title="${acc.c} - ${acc.n}">
+                    <span class="mono" style="color:var(--accent);">${acc.c}</span> 
+                    <span style="font-size:0.8rem; color:var(--ink2); margin-left:4px;">${acc.n}</span>
+                </div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function selectMayorAcc(code, name) {
+    currentMayorCode = code;
+    currentMayorName = name;
+    document.getElementById('mayor-acc-name').textContent = `NOMBRE DE CUENTA: ${code} - ${name.toUpperCase()}`;
+    renderMayorTree(); 
+    renderMayorTable();
+}
+
+function renderMayorTable() {
+    const tbody = document.getElementById('mayor-tbody');
+    if (!currentMayorCode) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--ink3); padding: 2rem;">Seleccione una cuenta a la izquierda para generar el libro mayor.</td></tr>';
+        return;
+    }
+
+    let saldo = 0;
+    let rowsHtml = '';
+    let hasData = false;
+
+    const formatFmt = (val) => val !== 0 ? parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-';
+
+    const sortedJournalForMayor = [...journal].sort((a,b) => (a.orden || 0) - (b.orden || 0));
+
+    sortedJournalForMayor.forEach((entry, idx) => {
+        let totalD = 0;
+        let totalH = 0;
+        
+        entry.lines.forEach(l => {
+            if (l.c.startsWith(currentMayorCode)) {
+                totalD += l.d || 0;
+                totalH += l.h || 0;
+            }
+        });
+
+        if (totalD > 0 || totalH > 0) {
+            hasData = true;
+            saldo += (totalD - totalH);
+            
+            rowsHtml += `
+                <tr>
+                    <td class="mono" style="font-size:0.75rem; text-align:center;">${entry.date}</td>
+                    <td class="mono text-center" style="text-align:center; color:var(--ink3)">#${entry.orden}</td>
+                    <td>${entry.glosa}</td>
+                    <td class="text-right mono" style="color:var(--ink)">${formatFmt(totalD)}</td>
+                    <td class="text-right mono" style="color:var(--ink)">${formatFmt(totalH)}</td>
+                    <td class="text-right mono" style="font-weight:600; background:var(--surface2); color:${saldo < 0 ? 'var(--red)' : 'var(--accent)'}">${formatFmt(saldo)}</td>
+                </tr>
+            `;
+        }
+    });
+
+    if (!hasData) {
+        rowsHtml = '<tr><td colspan="6" style="text-align:center; color:var(--ink3); padding: 2rem;">No hay movimientos en el diario para esta cuenta o sus subcuentas.</td></tr>';
+    }
+
+    tbody.innerHTML = rowsHtml;
+}
+
+// --- FÓRMULAS DE EXCEL ---
+function translateFormulaForExcel(formulaStr, entryLines) {
+    let expr = formulaStr.substring(1).toUpperCase();
+    expr = expr.replace(/([CDE])([0-9]+)/g, (match, col, rowStr) => {
+        const rowNum = parseInt(rowStr);
+        const lineInfo = entryLines[rowNum - 1];
+        if (!lineInfo || !lineInfo.excelRow) return "0"; 
+        
+        const excelRow = lineInfo.excelRow; 
+        
+        let excelCol = '';
+        if (col === 'C') excelCol = 'E'; 
+        else if (col === 'D') excelCol = 'F'; 
+        else if (col === 'E') excelCol = 'D'; 
+        
+        return `${excelCol}${excelRow}`;
+    });
+    return expr;
+}
+
+// --- EXPORTACIÓN UNIFICADA ---
+async function exportSistemaCompleto() {
+    if(journal.length === 0) { showToast("Nada que exportar en el Diario."); return; }
+    
+    showToast("Generando Sistema Completo, por favor espere...");
+
+    const wb = new ExcelJS.Workbook();
+
+    const wsDiario = wb.addWorksheet('Libro Diario');
+
+    wsDiario.columns = [
         { header: 'FECHA', key: 'f', width: 12 },
         { header: 'CÓDIGO', key: 'c', width: 15 },
         { header: 'DETALLE', key: 'n', width: 45 },
@@ -541,17 +2042,24 @@ async function exportExcel() {
         { header: 'HABER', key: 'h', width: 15 }
     ];
 
-    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
-    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F1117' } };
-    ws.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    wsDiario.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
+    wsDiario.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F1117' } };
+    wsDiario.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
 
-    journal.forEach((e, journalIndex) => {
+    const diarioMap = {};
+    
+    const sortedJournalForExport = [...journal].sort((a,b) => (a.orden || 0) - (b.orden || 0));
+
+    sortedJournalForExport.forEach((e, journalIndex) => {
         let isHaberSection = false;
 
-        // Añadir fila con el número del asiento (centrado)
-        const numRow = ws.addRow({ n: `- ${journalIndex + 1} -` });
-        numRow.getCell('n').alignment = { horizontal: 'center' };
-        numRow.getCell('n').font = { bold: true };
+        const numRowObj = wsDiario.addRow({ n: `- Asiento #${e.orden} -` });
+        numRowObj.getCell('n').alignment = { horizontal: 'center' };
+        numRowObj.getCell('n').font = { bold: true };
+        const numRow = numRowObj.number;
+
+        const entryData = { numRow: numRow, lines: [] };
+        let firstLineRow = null;
 
         e.lines.forEach((l, index) => {
             if (l.t === 'H') isHaberSection = true;
@@ -561,55 +2069,171 @@ async function exportExcel() {
                 if (l.d > 0) isHaberSection = false;
             }
 
-            const r = ws.addRow({ 
+            const r = wsDiario.addRow({ 
                 f: index === 0 ? e.date : '', 
                 c: l.c, 
                 n: l.n, 
-                p: l.p > 0 ? l.p : null,
-                d: l.d > 0 ? l.d : null, 
-                h: l.h > 0 ? l.h : null 
+                p: null,
+                d: null, 
+                h: null 
+            });
+
+            if (index === 0) firstLineRow = r.number;
+
+            l.excelRow = r.number;
+
+            entryData.lines.push({
+                c: l.c,
+                row: r.number,
+                d: l.d || 0,
+                h: l.h || 0
             });
 
             let indent = 0;
-            // 1. Sangría de jerarquía para el Excel
-            if (l.c.length > 4) {
-                indent += 1; // Ligera sangría interna para subcuentas
-            } else {
-                // Negrita para cuentas principales (jerarquía alta)
+            if (l.c.length > 4) indent += 1; 
+            else {
                 r.getCell('c').font = { bold: true };
                 r.getCell('n').font = { bold: true };
             }
+            if (isHaberSection) indent += 4;
+            if (indent > 0) r.getCell('n').alignment = { indent: indent };
             
-            // 2. Sangría profunda OBLIGATORIA para ABSOLUTAMENTE TODAS las cuentas del Haber
-            if (isHaberSection) {
-                indent += 4;
-            }
-
-            if (indent > 0) {
-                r.getCell('n').alignment = { indent: indent };
-            }
-            
-            // Centrado de fecha y código
             r.getCell('c').alignment = { horizontal: 'center' };
             r.getCell('f').alignment = { horizontal: 'center' };
+        });
 
-            // Formato monetario
+        e.lines.forEach((l) => {
+            const r = wsDiario.getRow(l.excelRow);
+            if (l.p_formula) r.getCell('p').value = { formula: translateFormulaForExcel(l.p_formula, e.lines), result: l.p };
+            else if (l.p > 0) r.getCell('p').value = l.p;
+            if (l.d_formula) r.getCell('d').value = { formula: translateFormulaForExcel(l.d_formula, e.lines), result: l.d };
+            else if (l.d > 0) r.getCell('d').value = l.d;
+            if (l.h_formula) r.getCell('h').value = { formula: translateFormulaForExcel(l.h_formula, e.lines), result: l.h };
+            else if (l.h > 0) r.getCell('h').value = l.h;
             ['p', 'd', 'h'].forEach(col => {
                 const cell = r.getCell(col);
                 if(cell.value) cell.numFmt = '#,##0.00';
             });
         });
 
-        // Glosa final
-        const gRow = ws.addRow({ c: '', n: `v/r: ${e.glosa}` });
+        const gRow = wsDiario.addRow({ c: '', n: `v/r: ${e.glosa}` });
         gRow.font = { italic: true };
         gRow.getCell('n').alignment = { indent: 1 };
         
-        ws.addRow([]); // Fila separadora visual entre asientos
+        entryData.glosaRow = gRow.number;
+        entryData.firstLineRow = firstLineRow;
+        diarioMap[e.id] = entryData;
+
+        wsDiario.addRow([]); 
+    });
+
+    const wsMayor = wb.addWorksheet('Libro Mayor');
+    
+    wsMayor.columns = [
+        { width: 12 }, 
+        { width: 15 }, 
+        { width: 45 }, 
+        { width: 15 }, 
+        { width: 15 }, 
+        { width: 15 }  
+    ];
+
+    const accountsWithActivity = new Set();
+    journal.forEach(e => e.lines.forEach(l => {
+        if (l.d > 0 || l.h > 0) accountsWithActivity.add(l.c);
+    }));
+    
+    const sortedCodes = Array.from(accountsWithActivity).sort((a, b) => a.localeCompare(b));
+
+    sortedCodes.forEach(code => {
+        const acc = dbCatalog.find(x => x.c === code) || { c: code, n: 'Cuenta Desconocida' };
+        
+        const titleRow = wsMayor.addRow([`NOMBRE DE CUENTA: ${acc.c} - ${acc.n.toUpperCase()}`]);
+        titleRow.font = { bold: true, size: 12 };
+        wsMayor.mergeCells(`A${titleRow.number}:F${titleRow.number}`);
+        
+        wsMayor.addRow([]);
+
+        const headerRow = wsMayor.addRow(['FECHA', 'ASIENTO', 'CONCEPTO', 'DÉBITO', 'CRÉDITO', 'SALDO']);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F1117' } };
+        headerRow.alignment = { horizontal: 'center' };
+
+        let startDataRow = wsMayor.lastRow.number + 1;
+        let currentDataRow = startDataRow;
+
+        sortedJournalForExport.forEach((entry) => {
+            const eMap = diarioMap[entry.id];
+            const linesForAcc = eMap.lines.filter(l => l.c === code && (l.d > 0 || l.h > 0));
+            
+            if (linesForAcc.length > 0) {
+                linesForAcc.forEach(l => {
+                    const r = wsMayor.addRow([
+                        { formula: `='Libro Diario'!A${eMap.firstLineRow}` }, 
+                        { formula: `='Libro Diario'!C${eMap.numRow}` },       
+                        { formula: `='Libro Diario'!C${eMap.glosaRow}` },     
+                        { formula: `='Libro Diario'!E${l.row}` },             
+                        { formula: `='Libro Diario'!F${l.row}` },             
+                        0 
+                    ]);
+                    
+                    r.getCell(1).alignment = { horizontal: 'center' };
+                    r.getCell(2).alignment = { horizontal: 'center' };
+                    r.getCell(4).numFmt = '#,##0.00';
+                    r.getCell(5).numFmt = '#,##0.00';
+                    r.getCell(6).numFmt = '#,##0.00';
+
+                    if (currentDataRow === startDataRow) {
+                        r.getCell(6).value = { formula: `D${currentDataRow}-E${currentDataRow}` };
+                    } else {
+                        r.getCell(6).value = { formula: `F${currentDataRow-1}+D${currentDataRow}-E${currentDataRow}` };
+                    }
+                    currentDataRow++;
+                });
+            }
+        });
+
+        wsMayor.addRow([]);
+        wsMayor.addRow([]);
     });
 
     const buf = await wb.xlsx.writeBuffer();
-    saveAs(new Blob([buf]), `Diario_SisBank_${Date.now()}.xlsx`);
+    saveAs(new Blob([buf]), `Sistema_Contable_Completo_${Date.now()}.xlsx`);
+    showToast("Exportación completada exitosamente.");
+}
+
+function renderCatalog() {
+    const q = document.getElementById('cat-search').value.toLowerCase();
+    const tbody = document.getElementById('catalog-tbody');
+    const counter = document.getElementById('catalog-counter');
+    
+    const filtered = dbCatalog
+        .filter(x => x.c.includes(q) || x.n.toLowerCase().includes(q))
+        .sort((a, b) => {
+            const aStart = a.c.startsWith(q);
+            const bStart = b.c.startsWith(q);
+            if (aStart && !bStart) return -1;
+            if (!aStart && bStart) return 1;
+            return a.c.localeCompare(b.c);
+        });
+
+    counter.innerHTML = `Mostrando <b>${filtered.length.toLocaleString()}</b> de <b>${dbCatalog.length.toLocaleString()}</b> registros totales`;
+
+    tbody.innerHTML = filtered.map(x => {
+        let style = '';
+        if (x.l === 1) style = 'font-weight:800; background:#e2e5ec; text-transform:uppercase; color:var(--ink); border-top:2px solid var(--border2);';
+        else if (x.l === 2) style = 'font-weight:700; background:var(--surface2); color:var(--ink2);';
+        else if (x.l === 3) style = 'font-weight:600; color:var(--ink2);';
+        else style = 'font-weight:400; color:var(--ink3);';
+
+        return `
+        <tr style="${style}">
+            <td class="mono">${x.c}</td>
+            <td style="padding-left:${(x.l-1)*15}px">${x.n}</td>
+            <td style="font-size:0.7rem;opacity:0.7">Nivel ${x.l}</td>
+        </tr>
+        `;
+    }).join('');
 }
 
 function navigate(id) {
@@ -618,6 +2242,7 @@ function navigate(id) {
     document.getElementById('view-'+id).classList.add('active');
     document.getElementById('nav-'+id).classList.add('active');
     if(id === 'catalogo') renderCatalog();
+    if(id === 'mayor' && currentMayorCode) renderMayorTable();
 }
 
 function showToast(m) {
@@ -626,11 +2251,60 @@ function showToast(m) {
     setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-function resetDB() {
-    if(confirm("¿Borrar todo?")) {
+async function resetDB() {
+    const confirmed = await showCustomModal('Limpiar Base de Datos', '¿Estás seguro de borrar todas las cuentas, asientos y plantillas?', 'confirm');
+    if(confirmed) {
         localStorage.clear();
         location.reload();
     }
+}
+
+// --- MOTOR DRAG AND DROP ---
+function initDragAndDrop() {
+    const container = document.getElementById('lines-container');
+    let draggedRow = null;
+
+    container.addEventListener('dragstart', e => {
+        const row = e.target.closest('.line-row');
+        if(row) {
+            draggedRow = row;
+            setTimeout(() => row.classList.add('dragging'), 0);
+        }
+    });
+
+    container.addEventListener('dragend', e => {
+        if(draggedRow) {
+            draggedRow.classList.remove('dragging');
+            draggedRow = null;
+            updateRowNumbers();
+        }
+    });
+
+    container.addEventListener('dragover', e => {
+        e.preventDefault(); 
+        const afterElement = getDragAfterElement(container, e.clientY);
+        if (draggedRow) {
+            if (afterElement == null) {
+                container.appendChild(draggedRow);
+            } else {
+                container.insertBefore(draggedRow, afterElement);
+            }
+        }
+    });
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.line-row:not(.dragging)')];
+
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 document.addEventListener('click', e => {
